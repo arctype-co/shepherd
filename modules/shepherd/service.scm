@@ -134,30 +134,6 @@
     ((_)
      '())))
 
-;; Respawning CAR times in CDR seconds will disable the service.
-;;
-;; XXX: The terrible hack in (shepherd) using SIGALRM to work around
-;; unreliable SIGCHLD delivery means that it might take up to 1 second for
-;; SIGCHLD to be delivered.  Thus, arrange for the car to be lower than the
-;; cdr.
-(define respawn-limit '(5 . 7))
-
-(define (respawn-limit-hit? respawns times seconds)
-  "Return true of RESPAWNS, the list of times at which a given service was
-respawned, shows that it has been respawned more than TIMES in SECONDS."
-  (define now (current-time))
-
-  ;; Note: This is O(TIMES), but TIMES is typically small.
-  (let loop ((times    times)
-             (respawns respawns))
-    (match respawns
-      (()
-       #f)
-      ((last-respawn rest ...)
-       (or (zero? times)
-           (and (> (+ last-respawn seconds) now)
-                (loop (- times 1) rest)))))))
-
 (define-class <service> ()
   ;; List of provided service-symbols.  The first one is also called
   ;; the `canonical name' and must be unique to this service.
@@ -221,7 +197,16 @@ respawned, shows that it has been respawned more than TIMES in SECONDS."
   (last-respawns #:init-form '())
   ;; A replacement for when this service is stopped.
   (replacement #:init-keyword #:replacement
-               #:init-value #f))
+               #:init-value #f)
+  ;; Respawning CAR times in CDR seconds will disable the service.
+  ;;
+  ;; Respawn limit (times, seconds). Set to #f to disable respawn limits.
+  ;; XXX: The terrible hack in (shepherd) using SIGALRM to work around
+  ;; unreliable SIGCHLD delivery means that it might take up to 1 second for
+  ;; SIGCHLD to be delivered.  Thus, arrange for the car to be lower than the
+  ;; cdr.
+  (respawn-limit #:init-keyword #:respawn-limit
+                 #:init-value '(5 . 7)))
 
 (define (service? obj)
   "Return true if OBJ is a service."
@@ -587,8 +572,6 @@ clients."
 (define-method (depends-resolved? (obj <service>))
   (every lookup-running (required-by obj)))
 
-
-
 (define (launch-service name proc args)
   "Try to start (with PROC) a service providing NAME; return #f on failure.
 Used by `start' and `enforce'."
@@ -648,8 +631,24 @@ results."
                (apply action service the-action args))
              which-services))))
 
-
-
+(define-method (respawn-limit-hit? (serv <service>))
+  "Return true if service SERV shows that it has been respawned more than it's
+respawn-limit TIMES in SECONDS. If the respawn-limit is #f, apply no limit."
+  (match (slot-ref serv 'respawn-limit)
+    (#f #f)
+    ((times . seconds)
+     (let* ((now (current-time))
+            (respawns (slot-ref serv 'last-respawns)))
+       ;; Note: This is O(TIMES), but TIMES is typically small.
+       (let loop ((times    times)
+                  (respawns respawns))
+         (match respawns
+           (()
+            #f)
+           ((last-respawn rest ...)
+            (or (zero? times)
+                (and (> (+ last-respawn seconds) now)
+                     (loop (- times 1) rest))))))))))
 
 ;; Handling of unprovided service-symbols.  This can be called in
 ;; either of the following ways (i.e. with either three or four
@@ -1140,18 +1139,25 @@ attempted to respawn the service a number of times already and it keeps dying,
 then disable it."
   (slot-set! serv 'running #f)
   (if (and (respawn? serv)
-           (not (respawn-limit-hit? (slot-ref serv 'last-respawns)
-                                    (car respawn-limit)
-                                    (cdr respawn-limit))))
+           (not (respawn-limit-hit? serv)))
       (if (not (slot-ref serv 'waiting-for-termination?))
-          (begin
-            ;; Everything is okay, start it.
-            (local-output (l10n "Respawning ~a.")
-                          (canonical-name serv))
-            (slot-set! serv 'last-respawns
-                       (cons (current-time)
-                             (slot-ref serv 'last-respawns)))
-            (start serv))
+          (match (slot-ref serv 'respawn-limit)
+            (#f
+             (begin
+               (local-output (l10n "Respawning ~a.")
+                             (canonical-name serv))
+               (start serv)))
+            ((respawn-limit-times . _)
+             (let ((last-respawns (slot-ref serv 'last-respawns)))
+               ;; Everything is okay, start it.
+               (local-output (l10n "Respawning ~a.")
+                             (canonical-name serv))
+               (slot-set! serv 'last-respawns
+                          (cons (current-time)
+                                ;; Only take the last n times here to prevent unbounded
+                                ;; list growth
+                                (take last-respawns (min (length last-respawns) respawn-limit-times))))
+               (start serv))))
           ;; We have just been waiting for the
           ;; termination.  The `running' slot has already
           ;; been set to `#f' by `stop'.
