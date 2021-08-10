@@ -901,7 +901,7 @@ execution of the @var{command} was successful, @code{#t} if not.
   [#:pid-file #f] [#:pid-file-timeout (default-pid-file-timeout)] @
   [#:log-file #f] @
   [#:directory (default-service-directory)] @
-  [#:file-creation-mask #f] @
+  [#:file-creation-mask #f] [#:create-session? #t] @
   [#:environment-variables (default-environment-variables)]
 Return a procedure that forks a child process, closes all file
 descriptors except the standard output and standard error descriptors,
@@ -911,10 +911,15 @@ to @var{environment-variables} (using the @code{environ} procedure),
 sets the current user to @var{user} the current group to @var{group}
 unless they are @code{#f} and supplementary groups to
 @var{supplementary-groups} unless they are @code{'()}, and executes
-@var{command} (a list of strings.)  The result of the procedure will be
-the PID of the child process.  Note that this will not work as expected
-if the process ``daemonizes'' (forks); in that case, you will need to
-pass @code{#:pid-file}, as explained below.
+@var{command} (a list of strings.)  When
+@var{create-session?} is true, the child process creates a new session with
+@code{setsid} and becomes its leader.  The result of the procedure will be
+the PID of the child process.
+
+@quotation Note
+This will not work as expected if the process ``daemonizes'' (forks); in
+that case, you will need to pass @code{#:pid-file}, as explained below.
+@end quotation
 
 When @var{pid-file} is true, it must be the name of a PID file
 associated with the process being launched; the return value is the PID
@@ -947,14 +952,14 @@ procedures.
   [#:supplementary-groups '()] @
   [#:log-file #f] @
   [#:directory (default-service-directory)] @
-  [#:file-creation-mask #f] @
+  [#:file-creation-mask #f] [#:create-session? #t] @
   [#:environment-variables (default-environment-variables)]
 @deffnx {procedure} fork+exec-command @var{command} @
   [#:user #f] @
   [#:group #f] @
   [#:supplementary-groups '()] @
   [#:directory (default-service-directory)] @
-  [#:file-creation-mask #f] @
+  [#:file-creation-mask #f] [#:create-session? #t] @
   [#:environment-variables (default-environment-variables)]
 Run @var{command} as the current process from @var{directory}, with
 @var{file-creation-mask} if it's true, and with
@@ -962,7 +967,9 @@ Run @var{command} as the current process from @var{directory}, with
 File descriptors 1 and 2 are kept as is or redirected to @var{log-file}
 if it's true, whereas file descriptor 0
 (standard input) points to @file{/dev/null}; all other file descriptors
-are closed prior to yielding control to @var{command}.
+are closed prior to yielding control to @var{command}.  When
+@var{create-session?} is true, call @code{setsid} first
+(@pxref{Processes, @code{setsid},, guile, GNU Guile Reference Manual}).
 
 By default, @var{command} is run as the current user.  If the @var{user}
 keyword argument is present and not false, change to @var{user}

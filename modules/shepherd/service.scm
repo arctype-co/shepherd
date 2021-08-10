@@ -1,5 +1,5 @@
 ;; service.scm -- Representation of services.
-;; Copyright (C) 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020 Ludovic Courtès <ludo@gnu.org>
+;; Copyright (C) 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021 Ludovic Courtès <ludo@gnu.org>
 ;; Copyright (C) 2002, 2003 Wolfgang Järling <wolfgang@pro-linux.de>
 ;; Copyright (C) 2014 Alex Sassmannshausen <alex.sassmannshausen@gmail.com>
 ;; Copyright (C) 2016 Alex Kost <alezost@gmail.com>
@@ -786,13 +786,14 @@ daemon writing FILE is running in a separate PID namespace."
                        (log-file #f)
                        (directory (default-service-directory))
                        (file-creation-mask #f)
+                       (create-session? #t)
                        (environment-variables (default-environment-variables)))
   "Run COMMAND as the current process from DIRECTORY, with FILE-CREATION-MASK
 if it's true, and with ENVIRONMENT-VARIABLES (a list of strings like
 \"PATH=/bin\").  File descriptors 1 and 2 are kept as is or redirected to
 LOG-FILE if it's true, whereas file descriptor 0 (standard input) points to
 /dev/null; all other file descriptors are closed prior to yielding control to
-COMMAND.
+COMMAND.  When CREATE-SESSION? is true, call 'setsid' first.
 
 By default, COMMAND is run as the current user.  If the USER keyword
 argument is present and not false, change to USER immediately before
@@ -802,9 +803,10 @@ current group, unless the GROUP keyword argument is present and not
 false."
   (match command
     ((program args ...)
-     ;; Become the leader of a new session and session group.
-     ;; Programs such as 'mingetty' expect this.
-     (setsid)
+     (when create-session?
+       ;; Become the leader of a new session and session group.
+       ;; Programs such as 'mingetty' expect this.
+       (setsid))
 
      (chdir directory)
      (environ environment-variables)
@@ -889,6 +891,7 @@ false."
                             (log-file #f)
                             (directory (default-service-directory))
                             (file-creation-mask #f)
+                            (create-session? #t)
                             (environment-variables
                              (default-environment-variables)))
   "Spawn a process that executed COMMAND as per 'exec-command', and return
@@ -920,6 +923,7 @@ its PID."
                           #:log-file log-file
                           #:directory directory
                           #:file-creation-mask file-creation-mask
+                          #:create-session? create-session?
                           #:environment-variables environment-variables))
           pid))))
 
@@ -932,6 +936,7 @@ its PID."
                                     (environment-variables
                                      (default-environment-variables))
                                     (file-creation-mask #f)
+                                    (create-session? #t)
                                     (pid-file #f)
                                     (pid-file-timeout
                                      (default-pid-file-timeout))
@@ -942,8 +947,10 @@ the current directory to @var{directory}, sets the umask to
 @var{file-creation-mask} unless it is @code{#f}, changes the environment to
 @var{environment-variables} (using the @code{environ} procedure), sets the
 current user to @var{user} and the current group to @var{group} unless they
-are @code{#f}, and executes @var{command} (a list of strings.)  The result of
-the procedure will be the PID of the child process.
+are @code{#f}, and executes @var{command} (a list of strings.)  When
+@var{create-session?} is true, the child process creates a new session with
+'setsid' and becomes its leader.  The result of the procedure will be the
+ PID of the child process.
 
 When @var{pid-file} is true, it must be the name of a PID file associated with
 the process being launched; the return value is the PID read from that file,
@@ -969,6 +976,7 @@ start."
                                   #:log-file log-file
                                   #:directory directory
                                   #:file-creation-mask file-creation-mask
+                                  #:create-session? create-session?
                                   #:environment-variables
                                   environment-variables)))
       (if pid-file
