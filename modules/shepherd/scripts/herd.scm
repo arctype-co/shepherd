@@ -1,5 +1,5 @@
 ;; herd.scm -- The program to herd the Shepherd.
-;; Copyright (C) 2013, 2014, 2016, 2018, 2019 Ludovic Courtès <ludo@gnu.org>
+;; Copyright (C) 2013, 2014, 2016, 2018, 2019, 2021 Ludovic Courtès <ludo@gnu.org>
 ;; Copyright (C) 2002, 2003 Wolfgang Jährling <wolfgang@pro-linux.de>
 ;;
 ;; This file is part of the GNU Shepherd.
@@ -121,13 +121,20 @@ of pairs."
                    (time-utc->date (make-time time-utc 0 time)))))
          (_ #t))))))
 
+(define root-service?
+  ;; XXX: This procedure is written in a surprising way to work around a
+  ;; compilation bug in Guile 3.0.5 to 3.0.7: <https://bugs.gnu.org/47172>.
+  (let ((names (list 'root 'shepherd)))
+    (lambda (service)
+      (memq service names))))
+
 (define (run-command socket-file action service args)
   "Perform ACTION with ARGS on SERVICE, and display the result.  Connect to
 the daemon via SOCKET-FILE."
   (with-system-error-handling
    (let ((sock    (open-connection socket-file))
          (action* (if (and (eq? action 'detailed-status)
-                           (memq service '(root shepherd)))
+                           (root-service? service))
                       'status
                       action)))
      ;; Send the command.
